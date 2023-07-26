@@ -32,14 +32,14 @@ class BERTPretrainModel(l.LightningModule):
             ignore_index=self.vocab.PieceToId(self.arg.model.pad_token)
         )
     
-    def _shard_eval_step(self, batch: any, batch_ids: int) -> Tensor:
+    def _shared_eval_step(self, batch: any, batch_ids: int) -> Tensor:
         src_input, trg_input, trg_output = batch
         output = self.model(src_input, trg_input)
         
         mlm_output = self.mlm_task(output)
         nsp_output = self.nsp_task(output)
         
-        return self.calculate_loss(output, trg_output)
+        return self.calculate_loss(mlm_output, nsp_output, trg_output)
         
     def training_step(self, batch: any, batch_idx: int) -> dict[str, Tensor]:
         src_input, target_sen, seg_token = batch
