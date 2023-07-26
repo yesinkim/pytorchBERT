@@ -9,6 +9,7 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig
 
 from src.dataset import PretrainDataModule
+from src.train import BERTPretrainModel
 
 def make_config(cfg: DictConfig) -> dict:
     result = {}
@@ -21,12 +22,11 @@ def make_config(cfg: DictConfig) -> dict:
 
 @hydra.main(config_path="configs", config_name="config")
 def train(cfg: DictConfig) -> None:
-    model = None
+    model = BERTPretrainModel(arg=cfg)
     data_module = PretrainDataModule(
         arg_data=cfg.data,
-        src_vocab=model.src_vocab,
-        trg_vocab=model.trg_vocab,
-        max_seq_size=cfg.model.max_sequence_size,
+        arg_model=cfg.model,
+        max_seq_len=cfg.model.max_seq_len,
         batch_size=cfg.trainer.batch_size,
     )
 

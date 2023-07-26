@@ -7,7 +7,7 @@ import lightning as l
 from omegaconf import DictConfig
 
 from src.model import BERT
-from src.tasks import MaskedLanguageModeling, NextSentencePrediction
+from src.tasks import MaskedLanguageModel, NextSentencePrediction
 from src.dataset import create_or_load_tokenizer
 
 import lightning as l
@@ -21,24 +21,37 @@ class BERTPretrainModel(l.LightningModule):
         self.arg = arg
         self.vocab = self.get_vocab()
         self.model = self.get_model()
+        self.mlm_task = MaskedLanguageModel(
+            hidden_dim=self.arg.model.hidden_dim,
+            vocab_size=self.vocab.get_piece_size(),
+        )
+        self.nsp_task = NextSentencePrediction(
+            hidden_dim=self.arg.model.hidden_dim,
+        )
+        self.loss_function = nn.NLLLoss(
+            ignore_index=self.vocab.PieceToId(self.arg.model.pad_token)
+        )
     
     def _shard_eval_step(self, batch: any, batch_ids: int) -> Tensor:
         src_input, trg_input, trg_output = batch
         output = self.model(src_input, trg_input)
-        loss = self.calculate_loss(output, trg_output)
-        return loss
+        
+        mlm_output = self.mlm_task(output)
+        nsp_output = self.nsp_task(output)
+        
+        return self.calculate_loss(output, trg_output)
         
     def training_step(self, batch: any, batch_idx: int) -> dict[str, Tensor]:
-        src_input, target_sen, seq_token = batch
-        output = self.model(src_input, trg_input)
+        src_input, target_sen, seg_token = batch
+        output = self.model(src_input, seg_token)
         
         mlm_output = self.mlm_task(output)
         nsp_output = self.nsp_task(output)
         
         loss, mlm_loss, nsp_loss = self.calculate_loss(mlm_output, nsp_output, target_sen)
         
-        metrics = {"loss": loss}
-        self.log_dict(metrics)
+        metrics = {"loss": loss, "mlm_loss": mlm_loss, "nsp_loss": nsp_loss}
+        self.log_dict(metrics)      # nn.Module 상속
 
         return metrics
 
@@ -73,15 +86,19 @@ class BERTPretrainModel(l.LightningModule):
             raise ValueError("trainer param 'optimizer' must be one of [Adam, AdamW].")
 
         return optimizer
-        
+
     def calculate_loss(self, mlm_output: Tensor, nsp_output: Tensor, target_sen: Tensor) -> Tensor:
         if self.device == "mps":
             mlm_output = mlm_output.to(device="cpu")
             nsp_output = nsp_output.to(device="cpu")
             target_sen = target_sen.to(device="cpu")
+            
+        mlm_loss = self.loss_function(mlm_output.transpose(1, 2), target_sen)      # NOTE: why? 
+        nsp_loss = self.loss_function(nsp_output, target_sen[:, 0])
         
-        mlm
-
+        loss = mlm_loss + nsp_loss
+        
+        return loss, mlm_loss, nsp_loss
 
     def get_model(self) -> nn.Module:
         params = {

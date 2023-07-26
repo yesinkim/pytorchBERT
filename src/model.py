@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from lightning.pytorch.utilities.types import (EVAL_DATALOADERS,
+import torch.nn.functional as F
                                                TRAIN_DATALOADERS)
 
 def get_positional_encoding_table(max_seq_len: int, hidden_dim: int):
@@ -61,9 +62,7 @@ def get_padding_mask(seq: Tensor, padding_id: int) -> Tensor:
     Returns:
         Tensor: attention pad masking table
     """
-    pad_attn_mask = seq.data.eq(padding_id).unsqueeze(
-        1
-    )  # padding id와 같은 mask에 1번째 자리 차원 증가 size(batch_size, 1, max_seq_len)
+    pad_attn_mask = seq.data.eq(padding_id).unsqueeze(1)  # padding id와 같은 mask에 1번째 자리 차원 증가 size(batch_size, 1, max_seq_len)
 
     return pad_attn_mask.expand(seq.size(0), seq.size(1), seq.size(1)).contiguous()
 
@@ -91,10 +90,10 @@ class BERTEmbedding(nn.Module):
         Returns:
             Tensor: _description_
         """
-        return self.tok_emb(input_tensor) + self.seg_emb(segment_tensor) + self.pos_emb(input_tensor)
+        return self.tok_emb(input_tensor) + self.seg_emb(segment_tensor) + self.pos_emb(input_tensor)       # size: (batch_size, max_seq_len, hidden_dim)
 
 class ScaledDotProductAttention(nn.Module):
-    def __init__(self, dropout_rate: float = 0.0) -> None:
+    def __init__(self, head_dim, dropout_rate: float = 0.0) -> None:
         """Scaled Dot Product Attention
 
         Args:
@@ -103,7 +102,7 @@ class ScaledDotProductAttention(nn.Module):
         """
         super().__init__()
         self.dropout = nn.Dropout(dropout_rate)
-        self.scale = head_dim ** 0.5
+        self.scale = head_dim ** 0.5        # head_dim없애고 싶으면 
 
     def forward(
         self, query: Tensor, key: Tensor, value: Tensor, attn_mask: Tensor
@@ -122,15 +121,18 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, hidden_dim, n_heads, dropout=0) -> None:
         super().__init__()
         assert hidden_dim // n_heads == 0
+        head_dim = int(hidden_dim // n_heads)
         self.W_Q = nn.Linear(hidden_dim, n_heads)
         self.W_K = nn.Linear(hidden_dim, n_heads)
         self.W_V = nn.Linear(hidden_dim, n_heads)
 
-        self.self_attn = ScaledDotProductAttention(dropout)
+        self.n_heads = n_heads
+        
+        self.self_attn = ScaledDotProductAttention(
+            head_dim=head_dim, dropout_rate=dropout)
         self.linear = nn.Linear(n_heads, hidden_dim)
 
         self.dropout = nn.Dropout(dropout)
-        self.n_heads = n_heads
 
     def forward(self, query: Tensor, key: Tensor, value: Tensor, attn_mask: Tensor):
         """MultiHeadAttention
@@ -176,6 +178,48 @@ class MultiHeadAttention(nn.Module):
 
         return output
     
+
+class PositionWiseFeedForward(nn.Module):
+    def __init__(self, hidden_dim, ff_dim, dropout=0) -> None:
+        super().__init__()
+        self.linear1 = nn.Linear(hidden_dim, ff_dim)
+        self.linear2 = nn.Linear(ff_dim, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.linear2(self.dropout(F.relu(self.linear1(x))))
+
+
+class EncoderLayer(nn.Module):
+    def __init__(
+        self, 
+        hidden_dim: int, 
+        n_heads: int, 
+        ff_dim: int, 
+        dropout: float = 0.0,
+        layer_norm_eps: float = 1e-12
+        ) -> None:
+        super().__init__()
+        self.self_attn = MultiHeadAttention(
+            hidden_dim=hidden_dim, n_heads=n_heads, dropout=dropout
+        )
+        self.layer_norm1 = nn.LayerNorm(hidden_dim, eps=layer_norm_eps)
+        self.ffnn = PositionWiseFeedForward(
+            hidden_dim=hidden_dim, ff_dim=ff_dim, dropout=dropout
+        )
+        self.layer_norm2 = nn.LayerNorm(hidden_dim, eps=layer_norm_eps)
+    
+    def forward(self, enc_inputs: Tensor, enc_self_attn_mask: Tensor) -> Tensor:
+        mh_output = self.layer_norm1(
+            self.self_attn(
+                enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask
+            ) + enc_inputs
+        )
+        ffnn_output = self.ffnn(mh_output)
+        ffnn_output = self.layer_norm2(ffnn_output + mh_output)
+        
+        return ffnn_output
+
 
 class BERT(nn.Module):
     def __init__(
