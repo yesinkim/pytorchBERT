@@ -1,11 +1,9 @@
 import numpy as np
-from torch import Tensor
 import torch
 import torch.nn as nn
-
-from lightning.pytorch.utilities.types import (EVAL_DATALOADERS,
 import torch.nn.functional as F
-                                               TRAIN_DATALOADERS)
+from torch import Tensor
+
 
 def get_positional_encoding_table(max_seq_len: int, hidden_dim: int):
     """_summary_

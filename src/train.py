@@ -1,16 +1,14 @@
-import torch
-from torch import Tensor
-import torch.nn as nn
-from torch.optim import Optimizer
-import sentencepiece as spm
 import lightning as l
+import sentencepiece as spm
+import torch
+import torch.nn as nn
 from omegaconf import DictConfig
+from torch import Tensor
 
+from src.dataset import create_or_load_tokenizer
 from src.model import BERT
 from src.tasks import MaskedLanguageModel, NextSentencePrediction
-from src.dataset import create_or_load_tokenizer
 
-import lightning as l
 
 class BERTPretrainModel(l.LightningModule):
     def __init__(

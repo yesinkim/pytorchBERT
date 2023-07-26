@@ -1,6 +1,7 @@
 import torch.nn as nn
 from torch import Tensor
 
+
 class MaskedLanguageModel(nn.Module):
     def __init__(
         self,

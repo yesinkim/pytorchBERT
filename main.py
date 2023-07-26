@@ -1,6 +1,6 @@
 import os
+
 import hydra
-from omegaconf import DictConfig
 from hydra.utils import get_original_cwd
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 
 from src.dataset import PretrainDataModule
 from src.train import BERTPretrainModel
+
 
 def make_config(cfg: DictConfig) -> dict:
     result = {}
